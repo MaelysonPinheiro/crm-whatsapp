@@ -1,5 +1,4 @@
-import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
-import express from 'express';
+const express = require('express');
 const pino = require('pino');
 const QRCode = require('qrcode');
 const fs = require('fs');
@@ -7,7 +6,7 @@ const path = require('path');
 const db = require('./database');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -22,6 +21,10 @@ let statusConexao = 'desconectado'; // 'desconectado', 'gerando_qr', 'conectado'
 // ==========================================
 async function conectarWhatsApp() {
     statusConexao = 'gerando_qr';
+    
+    // Importa o Baileys dinamicamente para compatibilidade com CommonJS
+    const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = await import('@whiskeysockets/baileys');
+
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     sock = makeWASocket({
@@ -66,7 +69,6 @@ async function conectarWhatsApp() {
         // Ignora mensagens que não são de conversas privadas (ex: grupos)
         if (!remetente || !remetente.endsWith('@s.whatsapp.net')) return;
 
-        const textoMensagem = msg.message.conversation || msg.message.extendedTextMessage?.text;
         const euFuiQueMandei = msg.key.fromMe;
 
         // Se a mensagem veio do próprio bot/empresa
@@ -505,18 +507,6 @@ app.post('/alternar-status-consultor', (req, res) => {
     });
 });
 
-// EXCLUIR VENDEDOR
-app.post('/deletar-consultor', (req, res) => {
-    const { id } = req.body;
-    db.run(`UPDATE atendimentos SET consultor_id = NULL WHERE consultor_id = ? AND status != 'finalizado'`, [id], (err) => {
-        if (err) console.error(err.message);
-        db.run(`DELETE FROM consultores WHERE id = ?`, [id], (err) => {
-            if (err) console.error(err.message);
-            res.redirect('/');
-        });
-    });
-});
-
 app.post('/enviar-mensagem-web', async (req, res) => {
     const { cliente_telefone, mensagem } = req.body;
 
@@ -572,11 +562,9 @@ app.post('/desconectar-whatsapp', async (req, res) => {
 app.post('/deletar-consultor', (req, res) => {
     const { id } = req.body;
     
-    // Opcional: Atualiza os atendimentos ativos dele para ficarem sem consultor antes de deletar
     db.run(`UPDATE atendimentos SET consultor_id = NULL WHERE consultor_id = ? AND status != 'finalizado'`, [id], (err) => {
         if (err) console.error(err.message);
         
-        // Deleta o consultor da tabela
         db.run(`DELETE FROM consultores WHERE id = ?`, [id], (err) => {
             if (err) console.error(err.message);
             res.redirect('/');
@@ -584,6 +572,7 @@ app.post('/deletar-consultor', (req, res) => {
     });
 });
 
+// Inicialização do Servidor HTTP
 app.listen(PORT, () => {
-    console.log(`🌐 Servidor CRM rodando em: http://localhost:${PORT}`);
+    console.log(`🚀 Servidor rodando na porta ${PORT}`);
 });

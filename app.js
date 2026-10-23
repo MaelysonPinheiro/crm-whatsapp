@@ -1,5 +1,5 @@
-const express = require('express');
-const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import express from 'express';
 const pino = require('pino');
 const QRCode = require('qrcode');
 const fs = require('fs');

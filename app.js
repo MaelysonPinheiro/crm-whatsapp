@@ -477,12 +477,12 @@ app.get('/', (req, res) => {
                         setInterval(atualizarTimers, 1000);
                         atualizarTimers();
 
-                        // Auto-Refresh da página a cada 5 segundos (Pausa se o modal do QR estiver aberto)
+                        // Auto-Refresh da página a cada 30 segundos (Pausa se o modal do QR estiver aberto)
                         setInterval(() => {
                             const modalQR = document.getElementById('modalQR');
                             if (modalQR && modalQR.classList.contains('flex')) return;
                             window.location.reload();
-                        }, 5000);
+                        }, 30000);
                     </script>
                 </body>
                 </html>

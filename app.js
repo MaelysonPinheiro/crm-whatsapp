@@ -119,16 +119,40 @@ async function conectarWhatsApp() {
                         db.run(
                             `INSERT INTO atendimentos (cliente_telefone, consultor_id, status, limite_tempo) VALUES (?, ?, 'aguardando', ?)`,
                             [clienteTelefone, consultorId, limiteTempo],
-                            async function (err) {
+                            async (err) => {
                                 if (err) return;
 
-                                // Resposta automática de boas-vindas
+                                // 1. Mensagem de boas-vindas para o CLIENTE
                                 const mensagemSaudacao = `Olá, *${nomeCliente}*! Seja bem-vindo(a) à nossa empresa. 👋\n\nAguarde só um instante, já estamos te direcionando para um de nossos consultores!`;
                                 await sock.sendMessage(clienteTelefone, { text: mensagemSaudacao });
 
+                                // 2. Notificação via WhatsApp para o VENDEDOR (se houver consultor ativo e com número cadastrado)
+                                if (consultor && consultor.telefone) {
+                                    // Formata o número do vendedor para o padrão do WhatsApp
+                                    let telVendedor = consultor.telefone.replace(/\D/g, ''); // Remove caracteres não numéricos
+                                    if (!telVendedor.endsWith('@s.whatsapp.net')) {
+                                        telVendedor = `${telVendedor}@s.whatsapp.net`;
+                                    }
+
+                                    const numClienteFormatado = clienteTelefone.split('@')[0];
+                                    const urlPainel = process.env.RENDER_EXTERNAL_URL || 'Acesse o Painel Web';
+
+                                    const avisoVendedor = `🔔 *NOVO LEAD ATRIBUÍDO!*\n\n` +
+                                        `👤 *Cliente:* ${nomeCliente} (${numClienteFormatado})\n` +
+                                        `⏱️ *SLA:* Você tem *5 minutos* para atender este cliente antes de ser reatribuído.\n\n` +
+                                        `💻 *Acesse o painel para responder:* ${urlPainel}`;
+
+                                    try {
+                                        await sock.sendMessage(telVendedor, { text: avisoVendedor });
+                                        console.log(`📲 Notificação enviada para o vendedor ${consultor.nome} (${telVendedor}).`);
+                                    } catch (erroAviso) {
+                                        console.error(`⚠️ Erro ao enviar notificação para o vendedor:`, erroAviso.message);
+                                    }
+                                }
+
                                 console.log(`✨ Novo atendimento registrado para ${nomeCliente} (${clienteTelefone}) com o consultor ${consultorNome} [Round-Robin].`);
                             }
-                        );
+                    );
                     });
                 }
             }
@@ -138,6 +162,9 @@ async function conectarWhatsApp() {
 
 conectarWhatsApp();
 
+// ==========================================
+// 2. CRONJOB / VERIFICADOR DE TIMEOUT (CADA 10S)
+// ==========================================
 // ==========================================
 // 2. CRONJOB / VERIFICADOR DE TIMEOUT (CADA 10S)
 // ==========================================
@@ -164,16 +191,39 @@ setInterval(() => {
                     LIMIT 1
                 `;
 
-                db.get(queryProximo, [atendimento.consultor_id || 0], (err, novoConsultor) => {
+                db.get(queryProximo, [atendimento.consultor_id || 0], async (err, novoConsultor) => {
                     const novoConsultorId = novoConsultor ? novoConsultor.id : atendimento.consultor_id;
                     const novoLimite = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
                     db.run(
                         `UPDATE atendimentos SET consultor_id = ?, limite_tempo = ? WHERE id = ?`,
                         [novoConsultorId, novoLimite, atendimento.id],
-                        (err) => {
+                        async (err) => {
                             if (!err) {
-                                console.log(`🔄 Atendimento #${atendimento.id} reatribuído com sucesso.`);
+                                console.log(`🔄 Atendimento #${atendimento.id} reatribuído com sucesso para ${novoConsultor ? novoConsultor.nome : 'mesmo vendedor'}.`);
+
+                                // Notifica o NOVO VENDEDOR via WhatsApp sobre a reatribuição por estouro de SLA
+                                if (sock && statusConexao === 'conectado' && novoConsultor && novoConsultor.telefone) {
+                                    let telNovo = novoConsultor.telefone.replace(/\D/g, '');
+                                    if (!telNovo.endsWith('@s.whatsapp.net')) {
+                                        telNovo = `${telNovo}@s.whatsapp.net`;
+                                    }
+
+                                    const numClienteFormatado = atendimento.cliente_telefone.split('@')[0];
+                                    const urlPainel = process.env.RENDER_EXTERNAL_URL || 'Acesse o Painel Web';
+
+                                    const avisoReatribuicao = `⚠️ *LEAD REATRIBUÍDO PARA VOCÊ!*\n\n` +
+                                        `👤 *Cliente:* ${numClienteFormatado}\n` +
+                                        `⏰ O atendimento #${atendimento.id} estourou o tempo limite de 5 minutos do consultor anterior e foi repassado para você.\n\n` +
+                                        `💻 *Acesse o painel para assumir o cliente:* ${urlPainel}`;
+
+                                    try {
+                                        await sock.sendMessage(telNovo, { text: avisoReatribuicao });
+                                        console.log(`📲 Alerta de reatribuição enviado para o vendedor ${novoConsultor.nome}.`);
+                                    } catch (erroEnvio) {
+                                        console.error(`⚠️ Erro ao enviar alerta de reatribuição:`, erroEnvio.message);
+                                    }
+                                }
                             }
                         }
                     );
